@@ -49,12 +49,27 @@ Full chain of custody, including the exact upstream commit and scheduler blob, i
 ## Install
 
 ```kotlin
+repositories {
+    maven {
+        url = uri("https://maven.pkg.github.com/bee-san/bee-fsrs")
+        credentials {
+            username = providers.gradleProperty("gpr.user").orNull
+            password = providers.gradleProperty("gpr.token").orNull
+        }
+    }
+}
+
 dependencies {
     implementation("dev.bee:bee-fsrs:0.1.0")
 }
 ```
 
 Requires JVM 17 or later.
+
+Published to GitHub Packages, which requires a token with `read:packages` even for a
+public package — that is a GitHub restriction, not a choice made here. Maven Central
+publication is not done yet, so a consumer that wants no credentials should vendor the
+released sources, as [BeeCode](https://github.com/bee-san/BeeCode) does.
 
 ## What this library does and does not do
 
@@ -93,10 +108,21 @@ These are enforced, not aspirational — see [PROVENANCE.md](PROVENANCE.md):
   Gradle build resolving this library the way an unrelated project would. It catches
   an undeclared dependency or a leaked `internal` type, which the engine's own tests
   cannot.
+- **A published-artifact resolution test** in
+  [`artifact-resolution/`](artifact-resolution/) — resolves `dev.bee:bee-fsrs:0.1.0`
+  by *coordinate*, with no composite build and no `dependencySubstitution`.
+
+The last two look similar and are not. `consumer-smoke` substitutes the sibling project
+for the coordinate, so it proves the **API** is self-sufficient but never reads the POM;
+a malformed POM or a missing transitive dependency is invisible to it.
+`artifact-resolution` resolves the real published artifact, so it proves the **artifact**
+is usable. Both are cheap, and they fail for different reasons.
 
 ```bash
-./gradlew test                      # engine, 14 tests
-cd consumer-smoke && ../gradlew test  # external consumer, 7 tests
+./gradlew test                                   # engine, 14 tests
+cd consumer-smoke && ../gradlew test             # API self-sufficiency, 7 tests
+./gradlew publishToMavenLocal                    # then:
+./gradlew --project-dir artifact-resolution test # real resolution, 3 tests
 ```
 
 ## Upgrade policy

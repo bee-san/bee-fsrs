@@ -44,6 +44,29 @@ java {
 }
 
 publishing {
+    // GitHub Packages, so an outside consumer can resolve `dev.bee:bee-fsrs` by
+    // coordinate instead of vendoring the sources. That is the part of BeeCode's M0
+    // gate the clean-consumer smoke build cannot demonstrate on its own: it
+    // substitutes the sibling project, which proves the API is self-sufficient but
+    // not that the artifact is actually fetchable.
+    //
+    // Credentials come from the environment so a fork can publish to its own package
+    // registry without editing this file, and `publishToMavenLocal` keeps working with
+    // no credentials at all.
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri(
+                System.getenv("GITHUB_PACKAGES_URL")
+                    ?: "https://maven.pkg.github.com/bee-san/bee-fsrs",
+            )
+            credentials {
+                username = System.getenv("GITHUB_ACTOR")
+                password = System.getenv("GITHUB_TOKEN")
+            }
+        }
+    }
+
     publications {
         create<MavenPublication>("maven") {
             from(components["java"])
