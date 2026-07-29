@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Engine and clean consumer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The engine's own tests, including the 38 upstream reference vectors that
+      # act as the oracle against silent drift in the mathematics.
+      - name: Test the engine
+        run: ./gradlew test --stacktrace
+
+      # A separate build resolving this library the way an unrelated project
+      # would. Catches an undeclared dependency or a leaked internal type, which
+      # the engine's own tests cannot see because they can see everything.
+      - name: Test the clean consumer
+        working-directory: consumer-smoke
+        run: ../gradlew test --stacktrace
+
+      - name: Verify the published artifact resolves
+        run: ./gradlew publishToMavenLocal --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: '**/build/reports/tests/**'
+          if-no-files-found: ignore
