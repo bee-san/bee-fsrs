@@ -2,48 +2,64 @@
 
 FSRS spaced-repetition memory mathematics for the JVM, in Kotlin.
 
-Dependency-free apart from the Kotlin stdlib, with no clock and no I/O. Elapsed days
-are an input, so every result is deterministic and reproducible — which is what makes
-a stored schedule auditable years later.
+Dependency-free apart from the Kotlin stdlib, with no clock and no I/O. Elapsed time is
+an input, so every result is deterministic and reproducible — which is what makes a
+stored schedule auditable years later.
 
 ```kotlin
-val engine = FsrsEngine.latestDefault()
+val engine = Fsrs7Engine.latestDefault()
 
 val first = engine.initialState(FsrsRating.GOOD)
 
 val result = engine.review(
-    FsrsReviewInput(
+    Fsrs7ReviewInput(
         previousState = first,
         rating = FsrsRating.GOOD,
-        elapsedDays = 3,
+        elapsedDays = 3.0,           // fractional: ten minutes is 0.00694
         desiredRetention = 0.9,
-        maximumInterval = 36_500,
+        maximumIntervalDays = 36_500.0,
     ),
 )
 
-result.nextIntervalDays   // when to show it again
+result.nextIntervalDays   // fractional days until it is due again
 result.nextState          // stability and difficulty to store
 result.retrievability     // probability of recall at review time
 ```
 
-## Which algorithm this is
+For the older 21-parameter revision, `FsrsEngine` has the same shape with whole-day
+`elapsedDays` and an `Int` interval. Both are supported; see below for which to pick.
 
-**FSRS-6.x, the 21-parameter snapshot.** Specifically a port of
-[`open-spaced-repetition/py-fsrs`](https://github.com/open-spaced-repetition/py-fsrs)
-at tag `v6.3.1`.
+## Which algorithms this is
 
-Worth being precise about, because this engine is sometimes described as "FSRS 7".
-FSRS-7 is a real, different algorithm — 35 parameters and fractional intervals, defined
-in [`srs-benchmark`](https://github.com/open-spaced-repetition/srs-benchmark) as
-`models/fsrs_v7.py` — and it ships in no scheduler library. What distinguishes this
-package from it is a number, not a label: 21 parameters, and defaults byte-exact to
-py-fsrs v6.3.1.
+**Two of them, side by side.**
 
-The algorithm identity is asserted in code by `FsrsAlgorithmInfo` and verified by a
-test, so a silent swap fails the build rather than quietly rescheduling every learner's
-queue.
+| | `FsrsEngine` | `Fsrs7Engine` |
+|---|---|---|
+| Revision | FSRS-6.x | FSRS-7 |
+| Parameters | 21 | 35 |
+| Intervals | integer days | **fractional days** |
+| Forgetting curve | single power law | **two power laws**, blended by stability |
+| Same-day reviews | separate branch below one day | **continuous blend** |
+| Ported from | [`py-fsrs`](https://github.com/open-spaced-repetition/py-fsrs) `v6.3.1` | [`srs-benchmark`](https://github.com/open-spaced-repetition/srs-benchmark) `models/fsrs_v7.py` |
 
-Full chain of custody, including the exact upstream commit and scheduler blob, is in
+FSRS-7 is the newer and more accurate revision — it beats FSRS-6 on log loss on
+upstream's benchmark, and it is the only revision that gives realistic predictions for
+same-day reviews. It ships in no other scheduler library: not py-fsrs, not fsrs-rs, not
+ts-fsrs, not Anki. Upstream defines it as PyTorch research code, so this is a port of
+that model rather than of a released artifact, and it is pinned to a commit and a blob
+because a research repository's `main` moves.
+
+**FSRS-6 is kept, not deprecated.** A schedule stored under 21 parameters cannot be
+reinterpreted under 35 — stability and difficulty do not mean the same thing — so
+deleting the older engine would make every existing row unexplainable. Both are here so
+that a consumer can migrate deliberately, and so an old row stays replayable under the
+engine that produced it.
+
+Each engine's identity is asserted in code (`FsrsAlgorithmInfo`, `Fsrs7AlgorithmInfo`)
+and verified by a test, so a silent swap fails the build rather than quietly
+rescheduling every learner's queue.
+
+Full chain of custody for both, including the exact upstream commits and blobs, is in
 [PROVENANCE.md](PROVENANCE.md).
 
 ## Install
@@ -60,7 +76,7 @@ repositories {
 }
 
 dependencies {
-    implementation("dev.bee:bee-fsrs:0.1.0")
+    implementation("dev.bee:bee-fsrs:0.2.0")
 }
 ```
 
@@ -76,7 +92,7 @@ released sources, as [BeeCode](https://github.com/bee-san/BeeCode) does.
 It owns the memory mathematics:
 
 - initial state from a first rating;
-- retrievability given elapsed days;
+- retrievability given elapsed time;
 - next difficulty and stability;
 - next interval for a target retention;
 - one complete review calculation.
@@ -92,7 +108,7 @@ These are enforced, not aspirational — see [PROVENANCE.md](PROVENANCE.md):
 
 1. **No dependencies** beyond the Kotlin stdlib. No coroutines, serialization,
    datetime, or logging, so a consumer inherits nothing transitively.
-2. **No clock and no I/O.** Elapsed days are an input, never read from a clock.
+2. **No clock and no I/O.** Elapsed time is an input, never read from a clock.
 3. **Pure and total.** Every function is deterministic and either returns a value or
    throws on invalid input.
 4. **Additive API changes only** within a major version, because consumers record the
@@ -101,15 +117,23 @@ These are enforced, not aspirational — see [PROVENANCE.md](PROVENANCE.md):
 
 ## Verification
 
-- **38 upstream reference vectors** in [`testdata/`](testdata/), which act as the
-  engine's oracle: if the mathematics ever drifts during a refactor, the fixture is
-  the thing that notices.
+- **38 FSRS-6 reference vectors and 384 FSRS-7 ones** in [`testdata/`](testdata/),
+  which act as the engines' oracle: if the mathematics ever drifts during a refactor,
+  the fixtures are what notices.
+
+  The FSRS-7 vectors are **generated by running upstream's own `models/fsrs_v7.py`
+  under PyTorch**, and the generator is committed beside them. That matters more than
+  the count: a fixture written by re-deriving the equations agrees with the port exactly
+  when both make the same misreading. Driving upstream's real code caught two such
+  traps — FSRS-7 feeds the *previous* difficulty into its stability update where FSRS-6
+  uses the next one, and upstream's Newton interval solver floors at one second in a way
+  that is right for its training penalty and wrong for a scheduler.
 - **A clean-consumer smoke test** in [`consumer-smoke/`](consumer-smoke/) — a separate
   Gradle build resolving this library the way an unrelated project would. It catches
   an undeclared dependency or a leaked `internal` type, which the engine's own tests
   cannot.
 - **A published-artifact resolution test** in
-  [`artifact-resolution/`](artifact-resolution/) — resolves `dev.bee:bee-fsrs:0.1.0`
+  [`artifact-resolution/`](artifact-resolution/) — resolves `dev.bee:bee-fsrs:0.2.0`
   by *coordinate*, with no composite build and no `dependencySubstitution`.
 
 The last two look similar and are not. `consumer-smoke` substitutes the sibling project
@@ -119,8 +143,8 @@ a malformed POM or a missing transitive dependency is invisible to it.
 is usable. Both are cheap, and they fail for different reasons.
 
 ```bash
-./gradlew check                       # engine (14) + real artifact resolution (3)
-cd consumer-smoke && ../gradlew test  # API self-sufficiency, 7 tests
+./gradlew check                       # engine (30) + real artifact resolution (4)
+cd consumer-smoke && ../gradlew test  # API self-sufficiency, 10 tests
 ```
 
 `check` publishes to the local repository and runs the resolution build itself, so the
@@ -128,12 +152,31 @@ gate holds on a laptop and not only on a CI runner. `consumer-smoke` stays a sep
 invocation because it `includeBuild`s this build, and Gradle cannot nest a composite
 build inside a `GradleBuild` task.
 
+## Which engine to use
+
+**New consumers should use `Fsrs7Engine`.** It is the more accurate revision, and it is
+the only one that schedules same-day reviews meaningfully.
+
+**Existing FSRS-6 consumers should treat the move as a migration, not a bump.** Three
+things change shape on your side:
+
+1. **Intervals become fractional.** An integer `interval_days` column silently floors
+   every sub-day interval — the case FSRS-7 exists to schedule — so widen it *before*
+   switching.
+2. **Elapsed time becomes fractional.** Flooring elapsed days to whole numbers gets you
+   FSRS-6 behaviour out of an FSRS-7 engine.
+3. **Stored memory state does not transfer.** Stability and difficulty under 21
+   parameters do not mean the same thing under 35. Old rows stay *interpretable* — the
+   algorithm label and parameter hash recorded per transition make a replay under the
+   original engine possible — but they are not *reinterpretable* under the new one.
+
 ## Upgrade policy
 
-Changing the engine version or the default parameters is not a routine dependency
+Changing the engine revision or the default parameters is not a routine dependency
 bump: it silently rewrites future due dates for every existing learner. The reference
-fixture must pass, and a consumer should record `FsrsAlgorithmInfo` and the parameter
-set alongside each stored schedule so an old row remains interpretable.
+fixtures must pass, and a consumer should record `Fsrs7AlgorithmInfo` (or
+`FsrsAlgorithmInfo`) and the parameter set alongside each stored schedule so an old row
+remains interpretable.
 
 ## Used by
 
@@ -144,4 +187,4 @@ set alongside each stored schedule so an old row remains interpretable.
 
 ## License
 
-MIT. The upstream algorithm is from py-fsrs, also MIT.
+MIT. The upstream algorithms are from py-fsrs and srs-benchmark, both also MIT.

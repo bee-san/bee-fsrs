@@ -20,10 +20,21 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # The engine's own tests, including the 38 upstream reference vectors that
-      # act as the oracle against silent drift in the mathematics.
-      - name: Test the engine
-        run: ./gradlew test --stacktrace
+      # `check`, not `test`: check also runs the artifact-resolution build, which
+      # resolves the published coordinate with no substitution. Running `test` here
+      # would leave that gate unexercised in CI.
+      #
+      # This covers both engines' reference fixtures — 38 FSRS-6 vectors and 384
+      # FSRS-7 ones — which are the oracle against silent drift in the mathematics.
+      #
+      # The FSRS-7 fixture is *checked in*, not regenerated here: generating it needs
+      # PyTorch and upstream's srs-benchmark checkout, which is far too heavy for a
+      # per-push job. Regenerating it is a deliberate act, run with the committed
+      # testdata/generate-fsrs7-reference-cases.py when the pinned upstream commit
+      # moves. A fixture regenerated automatically could absorb an upstream change
+      # into a green build, which is the opposite of what pinning is for.
+      - name: Check the engine and the published artifact
+        run: ./gradlew check --stacktrace
 
       # A separate build resolving this library the way an unrelated project
       # would. Catches an undeclared dependency or a leaked internal type, which
@@ -31,9 +42,6 @@ jobs:
       - name: Test the clean consumer
         working-directory: consumer-smoke
         run: ../gradlew test --stacktrace
-
-      - name: Verify the published artifact resolves
-        run: ./gradlew publishToMavenLocal --stacktrace
 
       - uses: actions/upload-artifact@v4
         if: always()

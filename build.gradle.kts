@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.bee"
-version = "0.1.0"
+version = "0.2.0"
 
 // bee-fsrs is deliberately dependency-free apart from the Kotlin stdlib. It is pure
 // memory mathematics with no clock, no storage, and no logging, so any consumer can
@@ -107,7 +107,8 @@ publishing {
             pom {
                 name.set("bee-fsrs")
                 description.set(
-                    "FSRS-6.x spaced-repetition memory mathematics for the JVM. " +
+                    "FSRS spaced-repetition memory mathematics for the JVM: the FSRS-6.x " +
+                        "21-parameter snapshot and the FSRS-7 35-parameter revision. " +
                         "Dependency-free, clock-free, and deterministic.",
                 )
                 url.set("https://github.com/bee-san/bee-fsrs")

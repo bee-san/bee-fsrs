@@ -16,7 +16,7 @@ repositories {
 dependencies {
     // A version, unlike consumer-smoke's substituted coordinate. Bump it with the
     // release: a stale version here means this gate is testing the previous artifact.
-    implementation("dev.bee:bee-fsrs:0.1.0")
+    implementation("dev.bee:bee-fsrs:0.2.0")
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
 }

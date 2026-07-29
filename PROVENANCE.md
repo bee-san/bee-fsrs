@@ -1,11 +1,19 @@
 # Provenance
 
-`bee-fsrs` is a Kotlin implementation of FSRS-6.x, extracted from
-[`bee-san/kanji_anki`](https://github.com/bee-san/kanji_anki) so that BeeCode,
-kanji_anki, and any other consumer resolve the same tested artifact rather than
-maintaining divergent copies.
+`bee-fsrs` implements **two** FSRS revisions in Kotlin, side by side:
 
-## Chain of custody
+- **FSRS-6.x**, the 21-parameter snapshot, extracted from
+  [`bee-san/kanji_anki`](https://github.com/bee-san/kanji_anki);
+- **FSRS-7**, the 35-parameter revision, ported from
+  [`open-spaced-repetition/srs-benchmark`](https://github.com/open-spaced-repetition/srs-benchmark).
+
+Both ship so that BeeCode, kanji_anki, and any other consumer resolve the same tested
+artifact rather than maintaining divergent copies — and so that a schedule stored under
+FSRS-6 stays interpretable after a consumer moves to FSRS-7. Removing the older engine
+would make every existing row unexplainable, which is the one thing the per-transition
+audit exists to prevent.
+
+## Chain of custody: FSRS-6.x
 
 | Layer | Identity |
 |---|---|
@@ -20,48 +28,73 @@ maintaining divergent copies.
 | Author / rights holder | Autumn Skerritt (`bee-san`) |
 | License | MIT, as is the upstream algorithm |
 
-The upstream identity is also asserted in code by `FsrsAlgorithmInfo` and verified by
-`FsrsEngineReferenceTest`, so a silent algorithm swap fails the build rather than
-quietly changing every learner's schedule.
+Asserted in code by `FsrsAlgorithmInfo` and verified by `FsrsEngineReferenceTest`.
 
-## On the "FSRS 7" label
+## Chain of custody: FSRS-7
 
-`kanji_anki`'s README describes its scheduler as "FSRS 7". That label is not accurate
-for this code. An earlier revision of this file said so for the wrong reason, which is
-worth correcting explicitly.
+| Layer | Identity |
+|---|---|
+| Algorithm | FSRS-7, 35-parameter revision |
+| Upstream reference | [`open-spaced-repetition/srs-benchmark`](https://github.com/open-spaced-repetition/srs-benchmark), `models/fsrs_v7.py` |
+| Upstream commit | `70cc4387f573ff20b13ac9c106333a335c8a4cb8` |
+| Upstream model blob | `33893c3fed0f7dbe28c2b55874a50d9b3fa77df5` |
+| Ported | 2026-07-29 |
+| License | MIT, as is the upstream algorithm |
 
-**FSRS-7 does exist.** It is `models/fsrs_v7.py` in
-[`open-spaced-repetition/srs-benchmark`](https://github.com/open-spaced-repetition/srs-benchmark),
-whose README calls it "the newest version". It is a real algorithm revision: **35
-parameters** (indices 0–34), designed for *fractional* interval lengths, with a
-forgetting curve mixing two power laws under eight optimizable parameters. This file
-previously claimed upstream "has published no v7" — that was false.
+Pinned to a **commit and a blob rather than a release**, because FSRS-7 has no release
+to pin. It lives in a research repository whose `main` moves, so "the FSRS-7 in
+srs-benchmark" is not a reproducible statement without a hash. Asserted in code by
+`Fsrs7AlgorithmInfo`.
 
-**This code is not FSRS-7**, and the evidence is the parameter vector rather than any
-README:
+### What FSRS-7 changes
 
-| | this package | py-fsrs `v6.3.1` | FSRS-7 |
-|---|---|---|---|
-| Parameter count | **21** | 21 | **35** |
-| First four defaults | 0.212, 1.2931, 2.3065, 8.2956 | identical | 0.041, 2.4175, 4.1283, 11.9709 |
-| Forgetting curve | single power law | single power law | 8-parameter mixed power |
-| Interval lengths | integer days | integer days | fractional |
+Not a retuning — three changes that alter results, not just parameter counts:
 
-`FsrsParameters.PARAMETER_COUNT` is 21 and the defaults are byte-exact py-fsrs
-`v6.3.1`. `kanji_anki`'s own documentation agrees — `docs/ladder-and-srs-system.md`,
-`docs/modularization-roadmap.md`, and `FsrsWeightFitter.kt` ("FSRS-6 bounds from the
-upstream optimizer's `parameter_clipper.rs`") all say FSRS-6, and its
-`FsrsAlgorithmInfo.kt` self-labels `"FSRS-6.x 21-parameter snapshot"`. Only that one
-README line says otherwise.
+| | FSRS-6.x | FSRS-7 |
+|---|---|---|
+| Parameter count | 21 | **35** |
+| First four defaults | 0.212, 1.2931, 2.3065, 8.2956 | 0.041, 2.4175, 4.1283, 11.9709 |
+| Forgetting curve | single power law | **two power laws**, blended by stability-dependent weights |
+| Interval lengths | integer days | **fractional days** |
+| Same-day reviews | separate branch below one day | **continuous blend** of long- and short-term stability |
+| Stability floor | 0.001 | **0.0001** |
 
-**Adopting FSRS-7 would be a port, not an upgrade.** No published scheduler library
-ships it — not py-fsrs, fsrs-rs, ts-fsrs, or Anki — so there is no released artifact to
-track, and it would need its own reference vectors. It also changes the shape of
-persisted state: 35 parameters and fractional intervals instead of 21 and integer days.
-So this package labels itself FSRS-6.x, the label is asserted in code, and a change is a
-deliberate gated decision rather than a silent relabel.
+The stability floor differs because upstream's `config.py` derives `s_min` from the
+`--secs` flag, and FSRS-7's own docstring says it "is intended to be always be used
+with `--short --secs`". Sub-day scheduling is the point of the revision, so the tighter
+floor is part of the algorithm rather than a tuning choice.
 
-## What was and was not changed during extraction
+### How the FSRS-7 port is verified
+
+`testdata/fsrs7-reference-cases.json` holds **384 vectors generated by running
+upstream's own `models/fsrs_v7.py` under PyTorch** — the generator is committed beside
+it as `testdata/generate-fsrs7-reference-cases.py`.
+
+Driving upstream's real code is the point. A fixture written by re-deriving the
+equations agrees with the port precisely when both make the same misreading, which is
+the failure mode a fixture most needs to catch. Two examples it did catch:
+
+- FSRS-7 feeds the **previous** difficulty into the stability update, where the FSRS-6
+  engine in this package uses the **next** difficulty. That is a real behavioural
+  difference between the two revisions, and easy to normalise away by accident when
+  porting one alongside the other.
+- Upstream's Newton solver for the interval floors its result at one second, which is
+  correct for the training penalty it serves and wrong as a scheduler. This port
+  bisects instead; four fixture vectors distinguish the two, and the bisection is the
+  one that actually hits the requested retention.
+
+The vectors are compared at a **relative** tolerance of 1e-9, because the quantities
+span eleven orders of magnitude — intervals from 1.3e-7 days to 36500. The generator
+reports the gap between upstream's own float32 and float64 evaluation (1.4e-5), so the
+tolerance is sized from measurement rather than chosen to pass.
+
+Two vectors carry a **non-default parameter vector**. Upstream caps the failure branch
+at the current stability, and that cap never binds under the default weights — a
+mutation test confirmed the cap could be deleted with every default-parameter vector
+still passing. A learner's fitted parameters are not the defaults, so "unreachable by
+default" is not "unreachable", and a legal extreme vector pins it.
+
+## What was and was not changed during the FSRS-6 extraction
 
 Changed:
 
@@ -77,6 +110,23 @@ validation, and no public API were touched.
 That matters because the fixture is the engine's oracle. If the mathematics had
 drifted during a copy-paste, the fixture would be the only thing that noticed — and it
 still passes.
+
+## What the FSRS-7 addition changed about FSRS-6
+
+Nothing in its mathematics. FSRS-7 arrived as new types — `Fsrs7Engine`,
+`Fsrs7Parameters`, `Fsrs7ReviewInput`, `Fsrs7ReviewOutput`, `Fsrs7AlgorithmInfo`, and
+`Fsrs7` — with the FSRS-6 engine, its parameters, and its 38-case fixture untouched.
+That is rule 5 below: a consumer with stored FSRS-6 rows must keep reproducing them
+byte-for-byte, so FSRS-7 is additive rather than a replacement.
+
+The one shared-code change is a refactor with no behavioural effect: the JSON reader the
+FSRS-6 fixture test used privately moved to `Json.kt` so both fixture tests read their
+oracles with the same parser. Two copies could come to disagree about number parsing,
+which would be a silent difference in what the fixtures assert.
+
+FSRS-7 gets its **own** constants object rather than sharing `Fsrs`, because its
+stability floor is ten times tighter. Sharing the constant would silently apply FSRS-6's
+floor to FSRS-7, which is exactly the quiet substitution the fixtures exist to catch.
 
 ## Extraction rules
 
@@ -115,3 +165,24 @@ Changing the engine version or the default parameters silently rewrites future d
 dates for existing learners. The reference fixture must pass, and for a
 multi-platform consumer it must pass on every target, before an upgrade may change any
 schedule.
+
+**Moving a consumer from FSRS-6 to FSRS-7 is a migration, not a version bump.** Both
+engines ship here precisely so that the move is a decision a consumer makes with its own
+data in view, rather than something this package does on its behalf. Three things change
+shape on the consumer's side:
+
+1. **Intervals become fractional.** An integer `interval_days` column silently floors
+   every sub-day interval — the case FSRS-7 exists to schedule — so it has to widen
+   before the switch, not after.
+2. **Elapsed time becomes fractional.** A consumer that floors elapsed days to whole
+   numbers discards the same-day resolution and gets FSRS-6 behaviour out of an FSRS-7
+   engine.
+3. **Stored memory state is not transferable.** Stability and difficulty computed under
+   21 parameters do not mean the same thing under 35. Old rows stay interpretable
+   because the algorithm label and parameter hash are recorded per transition, which is
+   what makes a replay under the original engine possible; they are not reinterpretable
+   under the new one.
+
+The recommended path is therefore to keep recording `Fsrs7AlgorithmInfo` (or
+`FsrsAlgorithmInfo`) and the parameter hash with every transition, so a learner's
+history remains a set of rows each of which names the mathematics that produced it.

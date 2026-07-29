@@ -1,5 +1,9 @@
 package consumer
 
+import dev.bee.fsrs.Fsrs7AlgorithmInfo
+import dev.bee.fsrs.Fsrs7Engine
+import dev.bee.fsrs.Fsrs7Parameters
+import dev.bee.fsrs.Fsrs7ReviewInput
 import dev.bee.fsrs.FsrsAlgorithmInfo
 import dev.bee.fsrs.FsrsEngine
 import dev.bee.fsrs.FsrsMemoryState
@@ -112,6 +116,63 @@ class CleanConsumerSmokeTest {
             a.nextState(state, FsrsRating.GOOD, 7),
             b.nextState(state, FsrsRating.GOOD, 7),
         )
+    }
+
+    @Test
+    fun theFsrs7EngineIsReachableAndDistinctFromFsrs6() {
+        // FSRS-7 ships alongside FSRS-6 rather than replacing it, so a consumer must
+        // be able to reach both and tell them apart. Asserted from outside the
+        // package because a consumer sees only the public API: if any FSRS-7 type
+        // needed for this were `internal`, it would compile inside the engine's own
+        // tests and fail only here.
+        assertEquals("FSRS-7 35-parameter snapshot", Fsrs7AlgorithmInfo.ALGORITHM_LABEL)
+        assertEquals(35, Fsrs7AlgorithmInfo.PARAMETER_COUNT)
+        assertEquals(35, Fsrs7Parameters.latestDefaultValues().size)
+        assertEquals(21, FsrsParameters.latestDefaultValues().size)
+
+        val engine = Fsrs7Engine.latestDefault()
+        val state = engine.initialState(FsrsRating.GOOD)
+        assertTrue(state.stability > 0.0)
+        assertTrue(state.difficulty in 1.0..10.0)
+    }
+
+    @Test
+    fun fsrs7SchedulesFractionalIntervals() {
+        // The behaviour a consumer has to adapt to. FSRS-6 returned whole days and
+        // could not express "due in ten minutes"; FSRS-7 can, and a consumer storing
+        // the result in an integer column would silently floor every sub-day
+        // interval to zero.
+        val engine = Fsrs7Engine.latestDefault()
+
+        val output = engine.review(
+            Fsrs7ReviewInput(
+                previousState = engine.initialState(FsrsRating.AGAIN),
+                rating = FsrsRating.AGAIN,
+                elapsedDays = 10.0 / (24.0 * 60.0),
+                desiredRetention = 0.9,
+                maximumIntervalDays = 36_500.0,
+            ),
+        )
+
+        assertTrue(output.retrievability in 0.0..1.0)
+        assertTrue(
+            output.nextIntervalDays < 1.0,
+            "expected a sub-day interval, got ${output.nextIntervalDays}",
+        )
+        assertTrue(output.nextIntervalDays > 0.0)
+    }
+
+    @Test
+    fun fsrs7BetterRatingsProduceLongerIntervals() {
+        // Same ordering property as FSRS-6: if it breaks, every rating button lies.
+        val engine = Fsrs7Engine.latestDefault()
+        val intervals = listOf(
+            FsrsRating.AGAIN, FsrsRating.HARD, FsrsRating.GOOD, FsrsRating.EASY,
+        ).map { rating ->
+            engine.nextIntervalDays(engine.initialState(rating).stability, 0.9, 36_500.0)
+        }
+        assertEquals(intervals, intervals.sorted(), "intervals must not decrease: $intervals")
+        assertTrue(intervals.last() > intervals.first())
     }
 
     @Test
