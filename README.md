@@ -119,11 +119,14 @@ a malformed POM or a missing transitive dependency is invisible to it.
 is usable. Both are cheap, and they fail for different reasons.
 
 ```bash
-./gradlew test                                   # engine, 14 tests
-cd consumer-smoke && ../gradlew test             # API self-sufficiency, 7 tests
-./gradlew publishToMavenLocal                    # then:
-./gradlew --project-dir artifact-resolution test # real resolution, 3 tests
+./gradlew check                       # engine (14) + real artifact resolution (3)
+cd consumer-smoke && ../gradlew test  # API self-sufficiency, 7 tests
 ```
+
+`check` publishes to the local repository and runs the resolution build itself, so the
+gate holds on a laptop and not only on a CI runner. `consumer-smoke` stays a separate
+invocation because it `includeBuild`s this build, and Gradle cannot nest a composite
+build inside a `GradleBuild` task.
 
 ## Upgrade policy
 

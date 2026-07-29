@@ -43,6 +43,38 @@ java {
     withSourcesJar()
 }
 
+/**
+ * Prove the published artifact actually resolves, as part of `check`.
+ *
+ * The plan makes external consumption a gate, and a gate enforced only by a CI step is
+ * weaker than it looks — nobody notices it was never added. This runs on every
+ * `./gradlew check`, on a laptop as much as on a runner.
+ *
+ * `publishToMavenLocal` first, because the point of the build is to resolve a real
+ * artifact from a repository rather than substitute a project. Making the ordering
+ * explicit stops it failing confusingly on a fresh clone.
+ *
+ * `consumer-smoke` is deliberately *not* wired in the same way: it `includeBuild`s this
+ * build, and Gradle does not support a composite build nested inside a `GradleBuild`
+ * task ("Cannot include build ... This is not supported yet"). It stays a separate
+ * invocation, which CI and the README both spell out.
+ */
+// Resolved out here: inside the configuration block below, `tasks` refers to
+// GradleBuild's own list-of-task-names property, not the project's task container.
+val publishLocally = tasks.named("publishToMavenLocal")
+
+val artifactResolution by tasks.registering(GradleBuild::class) {
+    group = "verification"
+    description = "Resolves the published artifact by coordinate, with no substitution."
+    dependsOn(publishLocally)
+    dir = file("artifact-resolution")
+    tasks = listOf("test")
+}
+
+tasks.named("check") {
+    dependsOn(artifactResolution)
+}
+
 publishing {
     // GitHub Packages, so an outside consumer can resolve `dev.bee:bee-fsrs` by
     // coordinate instead of vendoring the sources. That is the part of BeeCode's M0
