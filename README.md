@@ -32,10 +32,16 @@ result.retrievability     // probability of recall at review time
 [`open-spaced-repetition/py-fsrs`](https://github.com/open-spaced-repetition/py-fsrs)
 at tag `v6.3.1`.
 
-Worth being precise about, because "FSRS 7" is sometimes used loosely: upstream
-py-fsrs has published no v7, and its latest release is v6.3.1. The algorithm identity
-is asserted in code by `FsrsAlgorithmInfo` and verified by a test, so a silent swap
-fails the build rather than quietly rescheduling every learner's queue.
+Worth being precise about, because this engine is sometimes described as "FSRS 7".
+FSRS-7 is a real, different algorithm — 35 parameters and fractional intervals, defined
+in [`srs-benchmark`](https://github.com/open-spaced-repetition/srs-benchmark) as
+`models/fsrs_v7.py` — and it ships in no scheduler library. What distinguishes this
+package from it is a number, not a label: 21 parameters, and defaults byte-exact to
+py-fsrs v6.3.1.
+
+The algorithm identity is asserted in code by `FsrsAlgorithmInfo` and verified by a
+test, so a silent swap fails the build rather than quietly rescheduling every learner's
+queue.
 
 Full chain of custody, including the exact upstream commit and scheduler blob, is in
 [PROVENANCE.md](PROVENANCE.md).

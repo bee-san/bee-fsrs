@@ -27,17 +27,39 @@ quietly changing every learner's schedule.
 ## On the "FSRS 7" label
 
 `kanji_anki`'s README describes its scheduler as "FSRS 7". That label is not accurate
-for this code, and the discrepancy is worth recording rather than papering over:
+for this code. An earlier revision of this file said so for the wrong reason, which is
+worth correcting explicitly.
 
-- upstream py-fsrs has published **no v7**; its latest release is `v6.3.1`, which is
-  what this port targets;
-- `kanji_anki`'s own planning notes say so explicitly — *"Algorithm label is
-  FSRS-6-family 21-parameter snapshot, not FSRS-7 unless upstream explicitly labels it
-  that way"*;
-- the parameter count, 21, matches the FSRS-6 family.
+**FSRS-7 does exist.** It is `models/fsrs_v7.py` in
+[`open-spaced-repetition/srs-benchmark`](https://github.com/open-spaced-repetition/srs-benchmark),
+whose README calls it "the newest version". It is a real algorithm revision: **35
+parameters** (indices 0–34), designed for *fractional* interval lengths, with a
+forgetting curve mixing two power laws under eight optimizable parameters. This file
+previously claimed upstream "has published no v7" — that was false.
 
-So this package labels itself FSRS-6.x. If upstream publishes a v7 with a different
-parameter set, adopting it is a deliberate, gated change — not a silent relabel.
+**This code is not FSRS-7**, and the evidence is the parameter vector rather than any
+README:
+
+| | this package | py-fsrs `v6.3.1` | FSRS-7 |
+|---|---|---|---|
+| Parameter count | **21** | 21 | **35** |
+| First four defaults | 0.212, 1.2931, 2.3065, 8.2956 | identical | 0.041, 2.4175, 4.1283, 11.9709 |
+| Forgetting curve | single power law | single power law | 8-parameter mixed power |
+| Interval lengths | integer days | integer days | fractional |
+
+`FsrsParameters.PARAMETER_COUNT` is 21 and the defaults are byte-exact py-fsrs
+`v6.3.1`. `kanji_anki`'s own documentation agrees — `docs/ladder-and-srs-system.md`,
+`docs/modularization-roadmap.md`, and `FsrsWeightFitter.kt` ("FSRS-6 bounds from the
+upstream optimizer's `parameter_clipper.rs`") all say FSRS-6, and its
+`FsrsAlgorithmInfo.kt` self-labels `"FSRS-6.x 21-parameter snapshot"`. Only that one
+README line says otherwise.
+
+**Adopting FSRS-7 would be a port, not an upgrade.** No published scheduler library
+ships it — not py-fsrs, fsrs-rs, ts-fsrs, or Anki — so there is no released artifact to
+track, and it would need its own reference vectors. It also changes the shape of
+persisted state: 35 parameters and fractional intervals instead of 21 and integer days.
+So this package labels itself FSRS-6.x, the label is asserted in code, and a change is a
+deliberate gated decision rather than a silent relabel.
 
 ## What was and was not changed during extraction
 
